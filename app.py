@@ -3,25 +3,8 @@ from requests_oauthlib import OAuth2Session
 from dotenv import load_dotenv
 import os
 import requests
-import xmltodict
 from html import escape
 
-import os
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-
-import requests
-
-def get_week_scoreboard(access_token, league_key, week):
-    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/scoreboard;week={week}?format=json"
-
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-
-    return response.json()
 
 load_dotenv()
 
@@ -413,8 +396,7 @@ def render_dashboard(all_matchups, totals):
 
 @app.route("/")
 def login():
-    print("CLIENT_ID:", CLIENT_ID)
-    print("REDIRECT_URI:", REDIRECT_URI)
+ 
 
     yahoo = OAuth2Session(CLIENT_ID, redirect_uri=REDIRECT_URI)
     authorization_url, state = yahoo.authorization_url(AUTHORIZATION_BASE_URL)
@@ -452,4 +434,5 @@ def callback():
 
 
 if __name__ == "__main__":
-    app.run()
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

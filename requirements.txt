@@ -2,3 +2,4 @@ flask
 requests
 requests-oauthlib
 gunicorn
+python-dotenv

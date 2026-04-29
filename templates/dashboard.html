@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fantasy Dashboard</title>
+    <style>
+        th, td {
+           text-align: left;
+        }
+        body {
+            font-family: Arial;
+            background: #f5f7fb;
+            margin: 0;
+            padding: 30px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        input {
+            padding: 8px;
+            margin-bottom: 10px;
+            width: 200px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #eee;
+            cursor: pointer;
+            padding: 10px;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Fantasy Baseball Dashboard</h1>
+
+<div class="card">
+
+    <input type="text" id="search" placeholder="Search players..." onkeyup="filterTable()">
+    <div class="table-container">
+      <table id="table">
+        <thead>
+            <tr>
+                <th onclick="sortTable(0)">Player</th>
+                <th onclick="sortTable(1)">Team</th>
+                <th onclick="sortTable(2)">HR</th>
+                <th onclick="sortTable(3)">RBI</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for player in players %}
+            <tr>
+                <td>{{ player.name }}</td>
+                <td>{{ player.team }}</td>
+                <td>{{ player.hr }}</td>
+                <td>{{ player.rbi }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+      </table>
+    </div>
+</div>
+
+<script>
+function filterTable() {
+    let input = document.getElementById("search").value.toLowerCase();
+    let rows = document.querySelectorAll("#table tbody tr");
+
+    rows.forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(input) ? "" : "none";
+    });
+}
+
+function sortTable(col) {
+    let table = document.getElementById("table");
+    let rows = Array.from(table.rows).slice(1);
+    let asc = table.getAttribute("data-sort") !== "asc";
+
+    rows.sort((a, b) => {
+        let x = a.cells[col].innerText;
+        let y = b.cells[col].innerText;
+
+        return asc
+            ? x.localeCompare(y, undefined, {numeric: true})
+            : y.localeCompare(x, undefined, {numeric: true});
+    });
+
+    rows.forEach(row => table.appendChild(row));
+    table.setAttribute("data-sort", asc ? "asc" : "desc");
+}
+</script>
+
+</body>
+</html>

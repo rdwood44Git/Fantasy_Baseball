@@ -1,4 +1,4 @@
-from flask import Flask, redirect, request
+from flask import Flask, redirect, request, render_template
 from requests_oauthlib import OAuth2Session
 from dotenv import load_dotenv
 import os
@@ -391,8 +391,21 @@ def render_dashboard(all_matchups, totals):
     """
 
     return html
+app = Flask(__name__)
 
+@app.route("/demo")
+def demo():
+    players = [
+        {"name": "Aaron Judge", "team": "NYY", "position": "OF", "hr": 58, "rbi": 130, "sb": 10, "obp": .410},
+        {"name": "Bobby Witt Jr.", "team": "KC", "position": "SS", "hr": 32, "rbi": 109, "sb": 45, "obp": .389},
+        {"name": "Jose Ramirez", "team": "CLE", "position": "3B", "hr": 39, "rbi": 118, "sb": 41, "obp": .372},
+    ]
 
+    return render_template("dashboard.html", players=players)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 @app.route("/")
 def login():
@@ -432,7 +445,3 @@ def callback():
     return render_dashboard(all_matchups, totals)
 
 
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)

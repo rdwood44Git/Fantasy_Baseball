@@ -49,6 +49,18 @@
         tr:hover {
             background: #f9fafb;
         }
+        .table-container {
+         max-height: 400px;
+          overflow-y: auto;
+           border: 1px solid #ddd;
+        }
+
+        th {
+             position: sticky;
+             top: 0;
+             z-index: 2;
+             background: #eee;
+            }
     </style>
 </head>
 
@@ -85,8 +97,8 @@
 
 <script>
 function filterTable() {
-    let input = document.getElementById("search").value.toLowerCase();
-    let rows = document.querySelectorAll("#table tbody tr");
+    const input = document.getElementById("search").value.toLowerCase();
+    const rows = document.querySelectorAll("#table tbody tr");
 
     rows.forEach(row => {
         row.style.display = row.innerText.toLowerCase().includes(input) ? "" : "none";
@@ -94,21 +106,33 @@ function filterTable() {
 }
 
 function sortTable(col) {
-    let table = document.getElementById("table");
-    let rows = Array.from(table.rows).slice(1);
-    let asc = table.getAttribute("data-sort") !== "asc";
+    const table = document.getElementById("table");
+    const tbody = table.querySelector("tbody");
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const currentCol = table.getAttribute("data-sort-col");
+    const currentDir = table.getAttribute("data-sort-dir");
+    const asc = !(currentCol == col && currentDir === "asc");
 
     rows.sort((a, b) => {
-        let x = a.cells[col].innerText;
-        let y = b.cells[col].innerText;
+        const x = a.cells[col].innerText.trim();
+        const y = b.cells[col].innerText.trim();
+
+        const xNum = parseFloat(x);
+        const yNum = parseFloat(y);
+
+        if (!isNaN(xNum) && !isNaN(yNum)) {
+            return asc ? xNum - yNum : yNum - xNum;
+        }
 
         return asc
-            ? x.localeCompare(y, undefined, {numeric: true})
-            : y.localeCompare(x, undefined, {numeric: true});
+            ? x.localeCompare(y)
+            : y.localeCompare(x);
     });
 
-    rows.forEach(row => table.appendChild(row));
-    table.setAttribute("data-sort", asc ? "asc" : "desc");
+    rows.forEach(row => tbody.appendChild(row));
+
+    table.setAttribute("data-sort-col", col);
+    table.setAttribute("data-sort-dir", asc ? "asc" : "desc");
 }
 </script>
 

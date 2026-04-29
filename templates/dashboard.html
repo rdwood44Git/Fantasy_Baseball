@@ -1,115 +1,259 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Fantasy Dashboard</title>
+    <title>Fantasy Baseball Dashboard</title>
+
     <style>
-        th, td {
-           text-align: left;
-        }
         body {
-            font-family: Arial;
+            font-family: Arial, sans-serif;
+            margin: 24px;
             background: #f5f7fb;
-            margin: 0;
-            padding: 30px;
+            color: #222;
         }
 
         h1 {
-            margin-bottom: 20px;
+            margin-bottom: 24px;
+        }
+
+        h2 {
+            margin-top: 32px;
         }
 
         .card {
             background: white;
             padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+            margin-bottom: 32px;
         }
 
-        input {
-            padding: 8px;
-            margin-bottom: 10px;
-            width: 200px;
+        .search-box {
+            padding: 10px;
+            width: 300px;
+            margin-bottom: 14px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        .table-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
         }
 
         table {
-            width: 100%;
             border-collapse: collapse;
+            width: 100%;
+            background: white;
+        }
+
+        th, td {
+            border-bottom: 1px solid #ddd;
+            padding: 9px;
+            font-size: 14px;
+            text-align: center;
+            white-space: nowrap;
         }
 
         th {
-            background: #eee;
+            background: #222;
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 2;
             cursor: pointer;
-            padding: 10px;
         }
 
-        td {
-            padding: 10px;
-            border-bottom: 1px solid #ddd;
+        tr:nth-child(even) {
+            background: #f7f7f7;
         }
 
         tr:hover {
-            background: #f9fafb;
-        }
-        .table-container {
-         max-height: 400px;
-          overflow-y: auto;
-           border: 1px solid #ddd;
+            background: #eef4ff;
         }
 
-        th {
-             position: sticky;
-             top: 0;
-             z-index: 2;
-             background: #eee;
-            }
+        .team {
+            font-weight: bold;
+            text-align: left;
+        }
+
+        .score {
+            font-weight: bold;
+        }
     </style>
 </head>
 
 <body>
 
-<h1>Fantasy Baseball Dashboard</h1>
+<h1>Fantasy Baseball Matchup Dashboard</h1>
 
 <div class="card">
+    <h2>Season Totals by Team</h2>
 
-    <input type="text" id="search" placeholder="Search players..." onkeyup="filterTable()">
+    <input class="search-box" type="text" placeholder="Search season totals..."
+           onkeyup="filterTable(this, 'seasonTotalsTable')">
+
     <div class="table-container">
-      <table id="table">
-        <thead>
-            <tr>
-                <th onclick="sortTable(0)">Player</th>
-                <th onclick="sortTable(1)">Team</th>
-                <th onclick="sortTable(2)">HR</th>
-                <th onclick="sortTable(3)">RBI</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for player in players %}
-            <tr>
-                <td>{{ player.name }}</td>
-                <td>{{ player.team }}</td>
-                <td>{{ player.hr }}</td>
-                <td>{{ player.rbi }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-      </table>
+        <table id="seasonTotalsTable">
+            <thead>
+                <tr>
+                    <th onclick="sortTable('seasonTotalsTable', 0)">Rank</th>
+                    <th onclick="sortTable('seasonTotalsTable', 1)">Team</th>
+                    <th onclick="sortTable('seasonTotalsTable', 2)">Weeks</th>
+                    <th onclick="sortTable('seasonTotalsTable', 3)">Category Points</th>
+
+                    {% for stat_id in SCORING_STATS %}
+                        <th onclick="sortTable('seasonTotalsTable', {{ loop.index + 3 }})">
+                            Total {{ STAT_NAMES[stat_id] }}
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for team in totals %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td class="team">{{ team.team }}</td>
+                    <td>{{ team.weeks }}</td>
+                    <td>{{ team.category_points }}</td>
+
+                    {% for stat_id in SCORING_STATS %}
+                        {% set value = team.stats[stat_id] %}
+
+                        {% if stat_id in ["4", "26", "27"] %}
+                            <td>{{ "%.3f"|format(value / team.weeks) }}</td>
+                        {% else %}
+                            <td>{{ value|int }}</td>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 
+
+<div class="card">
+    <h2>Average Per Week by Team</h2>
+
+    <input class="search-box" type="text" placeholder="Search weekly averages..."
+           onkeyup="filterTable(this, 'weeklyAverageTable')">
+
+    <div class="table-container">
+        <table id="weeklyAverageTable">
+            <thead>
+                <tr>
+                    <th onclick="sortTable('weeklyAverageTable', 0)">Rank</th>
+                    <th onclick="sortTable('weeklyAverageTable', 1)">Team</th>
+                    <th onclick="sortTable('weeklyAverageTable', 2)">Weeks</th>
+                    <th onclick="sortTable('weeklyAverageTable', 3)">Avg Category Points</th>
+
+                    {% for stat_id in SCORING_STATS %}
+                        <th onclick="sortTable('weeklyAverageTable', {{ loop.index + 3 }})">
+                            Avg {{ STAT_NAMES[stat_id] }}
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for team in totals %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td class="team">{{ team.team }}</td>
+                    <td>{{ team.weeks }}</td>
+                    <td>{{ "%.2f"|format(team.category_points / team.weeks) }}</td>
+
+                    {% for stat_id in SCORING_STATS %}
+                        {% set value = team.stats[stat_id] / team.weeks %}
+
+                        {% if stat_id in ["4", "26", "27"] %}
+                            <td>{{ "%.3f"|format(value) }}</td>
+                        {% else %}
+                            <td>{{ "%.1f"|format(value) }}</td>
+                        {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+
+<div class="card">
+    <h2>Weekly Matchup Category Stats</h2>
+
+    <input class="search-box" type="text" placeholder="Search matchup details..."
+           onkeyup="filterTable(this, 'matchupDetailTable')">
+
+    <div class="table-container">
+        <table id="matchupDetailTable">
+            <thead>
+                <tr>
+                    <th onclick="sortTable('matchupDetailTable', 0)">Week</th>
+                    <th onclick="sortTable('matchupDetailTable', 1)">Dates</th>
+                    <th onclick="sortTable('matchupDetailTable', 2)">Team</th>
+                    <th onclick="sortTable('matchupDetailTable', 3)">Score</th>
+
+                    {% for stat_id in SCORING_STATS %}
+                        <th onclick="sortTable('matchupDetailTable', {{ loop.index + 3 }})">
+                            {{ STAT_NAMES[stat_id] }}
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for matchup in all_matchups %}
+                    {% set dates = matchup.week_start ~ " to " ~ matchup.week_end %}
+                    {% set score = matchup.team1_points ~ " - " ~ matchup.team2_points %}
+
+                    <tr>
+                        <td>{{ matchup.week }}</td>
+                        <td>{{ dates }}</td>
+                        <td class="team">{{ matchup.team1_name }}</td>
+                        <td class="score">{{ score }}</td>
+
+                        {% for stat_id in SCORING_STATS %}
+                            <td>{{ matchup.team1_stats.get(stat_id, "") }}</td>
+                        {% endfor %}
+                    </tr>
+
+                    <tr>
+                        <td>{{ matchup.week }}</td>
+                        <td>{{ dates }}</td>
+                        <td class="team">{{ matchup.team2_name }}</td>
+                        <td class="score">{{ score }}</td>
+
+                        {% for stat_id in SCORING_STATS %}
+                            <td>{{ matchup.team2_stats.get(stat_id, "") }}</td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+
 <script>
-function filterTable() {
-    const input = document.getElementById("search").value.toLowerCase();
-    const rows = document.querySelectorAll("#table tbody tr");
+function filterTable(input, tableId) {
+    const search = input.value.toLowerCase();
+    const rows = document.querySelectorAll("#" + tableId + " tbody tr");
 
     rows.forEach(row => {
-        row.style.display = row.innerText.toLowerCase().includes(input) ? "" : "none";
+        row.style.display = row.innerText.toLowerCase().includes(search) ? "" : "none";
     });
 }
 
-function sortTable(col) {
-    alert("Sort clicked");
-    const table = document.getElementById("table");
+function sortTable(tableId, col) {
+    const table = document.getElementById(tableId);
     const tbody = table.querySelector("tbody");
     const rows = Array.from(tbody.querySelectorAll("tr"));
+
     const currentCol = table.getAttribute("data-sort-col");
     const currentDir = table.getAttribute("data-sort-dir");
     const asc = !(currentCol == col && currentDir === "asc");
@@ -126,8 +270,8 @@ function sortTable(col) {
         }
 
         return asc
-            ? x.localeCompare(y)
-            : y.localeCompare(x);
+            ? x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" })
+            : y.localeCompare(x, undefined, { numeric: true, sensitivity: "base" });
     });
 
     rows.forEach(row => tbody.appendChild(row));

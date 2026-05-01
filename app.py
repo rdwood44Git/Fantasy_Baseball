@@ -61,7 +61,7 @@ STAT_NAMES = {
     "12": "HR",
     "13": "RBI",
     "16": "SB",
-    "4": "AVG",
+    "4": "OBP",
     "28": "W",
     "42": "K",
     "26": "ERA",
@@ -291,14 +291,44 @@ def api_dashboard():
     url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/standings?format=json"
 
     response = requests.get(url, headers=headers)
+    data = response.json()
 
-    print("Yahoo status:", response.status_code)
-    print("Yahoo response:", response.text[:1000])
+    teams = []
 
-    return jsonify({
-        "status_code": response.status_code,
-        "raw_response_preview": response.text[:1000]
-    })
+    try:
+        yahoo_teams = data["fantasy_content"]["league"][1]["standings"][0]["teams"]
+
+        for key, value in yahoo_teams.items():
+            if key.isdigit():
+                team = value["team"]
+
+                # Extract name
+                name = None
+                for item in team[0]:
+                    if isinstance(item, dict) and "name" in item:
+                        name = item["name"]
+
+                # Extract wins/losses
+                wins = 0
+                losses = 0
+
+                for item in team:
+                    if isinstance(item, dict) and "team_standings" in item:
+                        record = item["team_standings"]["outcome_totals"]
+                        wins = record.get("wins", 0)
+                        losses = record.get("losses", 0)
+
+                teams.append({
+                    "name": name,
+                    "wins": int(wins),
+                    "losses": int(losses)
+                })
+
+    except Exception as e:
+        print("Parsing error:", e)
+        return jsonify({"error": "Failed to parse Yahoo data"}), 500
+
+    return jsonify({"teams": teams})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

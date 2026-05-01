@@ -1,4 +1,5 @@
-from flask import Flask, redirect, request, render_template
+from flask import Flask, redirect, request, render_template, jsonify, session
+from flask_cors import CORS
 from requests_oauthlib import OAuth2Session
 from dotenv import load_dotenv
 import os
@@ -9,6 +10,7 @@ from html import escape
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
 
 CLIENT_ID = os.getenv("YAHOO_CLIENT_ID")
 CLIENT_SECRET = os.getenv("YAHOO_CLIENT_SECRET")
@@ -218,6 +220,10 @@ def render_dashboard(all_matchups, totals):
 
 
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
+CORS(app)
+
+
 
 @app.route("/demo")
 def demo():
@@ -229,9 +235,7 @@ def demo():
 
     return render_template("dashboard.html", players=players)
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+
 
 @app.route("/")
 def login():
@@ -252,7 +256,7 @@ def callback():
     )
 
     access_token = token["access_token"]
-
+    session["access_token"] = access_token
     league_key = "469.l.64625"
 
     all_matchups = []
@@ -271,3 +275,31 @@ def callback():
     return render_dashboard(all_matchups, totals)
 
 
+@app.route("/api/dashboard")
+def api_dashboard():
+    access_token = session.get("access_token")
+
+    if not access_token:
+        return jsonify({"error": "Not logged into Yahoo"}), 401
+
+    league_key = "469.l.64625"
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/standings?format=json"
+
+    response = requests.get(url, headers=headers)
+
+    print("Yahoo status:", response.status_code)
+    print("Yahoo response:", response.text[:1000])
+
+    return jsonify({
+        "status_code": response.status_code,
+        "raw_response_preview": response.text[:1000]
+    })
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

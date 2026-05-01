@@ -9,7 +9,9 @@ function App() {
   const [teams, setTeams] = useState([]);
 
   useEffect(() => {
-    fetch("https://fantasy-baseball-cmav.onrender.com/api/dashboard")
+    fetch("https://fantasy-baseball-cmav.onrender.com/api/dashboard", {
+  credentials: "include"
+})
       .then(res => res.json())
       .then(data => {
            console.log("Dashboard data:", data);

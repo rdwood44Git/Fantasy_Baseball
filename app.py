@@ -232,7 +232,6 @@ def render_dashboard(all_matchups, totals):
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
-CORS(app)
 
 
 

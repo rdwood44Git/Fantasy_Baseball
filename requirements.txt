@@ -3,3 +3,4 @@ requests
 requests-oauthlib
 gunicorn
 python-dotenv
+flask-cors

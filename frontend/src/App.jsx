@@ -5,7 +5,7 @@ import {
   Paper
 } from '@mui/material';
 
-
+console.log("VITE CONFIG LOADED")
 
 function App() {
   const [categoryTables, setCategoryTables] = useState([]);

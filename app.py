@@ -19,8 +19,16 @@ app.config.update(
 
 CORS(
     app,
-    resources={r"/api/*": {"origins": "http://localhost:5173"}},
+    CORS(
+    app,
+    resources={r"/api/*": {
+        "origins": [
+            "http://localhost:5173",
+            "https://fantasy-baseball-1-cum7.onrender.com"
+        ]
+    }},
     supports_credentials=True
+)
 )
 
 CLIENT_ID = os.getenv("YAHOO_CLIENT_ID")
@@ -318,7 +326,7 @@ def callback():
 
     totals = build_totals(all_matchups)
 
-    return render_dashboard(all_matchups, totals)
+    return redirect("https://YOUR-NEW-FRONTEND-URL.onrender.com")
 
 
 @app.route("/api/dashboard")

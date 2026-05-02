@@ -378,7 +378,34 @@ def api_dashboard():
         print("Parsing error:", e)
         return jsonify({"error": "Failed to parse Yahoo data"}), 500
 
-    return jsonify({"teams": teams})
+    # STEP 1: Get all matchup data (same as your callback)
+all_matchups = []
+
+for week in range(1, 26):
+    try:
+        data = get_week_scoreboard(access_token, league_key, week)
+        week_matchups = parse_week_matchups(data)
+        all_matchups.extend(week_matchups)
+    except Exception as e:
+        print(f"Skipping week {week}. Error: {e}")
+
+# STEP 2: Build totals
+totals = build_totals(all_matchups)
+
+# STEP 3: Build category tables
+category_tables = build_category_tables(totals)
+
+# STEP 4: Return correct format
+return jsonify({
+    "categoryTables": [
+        {
+            "key": key,
+            "label": value["label"],
+            "rows": value["rows"]
+        }
+        for key, value in category_tables.items()
+    ]
+})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

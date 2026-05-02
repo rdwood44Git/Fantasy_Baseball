@@ -343,74 +343,59 @@ def api_dashboard():
         "Authorization": f"Bearer {access_token}"
     }
 
-    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/standings?format=json"
+    # Get season-to-date team category stats
+    url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/teams/stats?format=json"
 
     response = requests.get(url, headers=headers)
+    response.raise_for_status()
     data = response.json()
 
-    teams = []
+    team_totals = []
 
     try:
-        yahoo_teams = data["fantasy_content"]["league"][1]["standings"][0]["teams"]
+        yahoo_teams = data["fantasy_content"]["league"][1]["teams"]
 
         for key, value in yahoo_teams.items():
-            if key.isdigit():
-                team = value["team"]
+            if key == "count":
+                continue
 
-                # Extract name
-                name = None
-                for item in team[0]:
-                    if isinstance(item, dict) and "name" in item:
-                        name = item["name"]
+            team = value["team"]
 
-                # Extract wins/losses
-                wins = 0
-                losses = 0
+            team_name = get_team_name(team)
 
-                for item in team:
-                    if isinstance(item, dict) and "team_standings" in item:
-                        record = item["team_standings"]["outcome_totals"]
-                        wins = record.get("wins", 0)
-                        losses = record.get("losses", 0)
+            stats = {}
 
-                teams.append({
-                    "name": name,
-                    "wins": int(wins),
-                    "losses": int(losses)
-                })
+            raw_stats = team[1]["team_stats"]["stats"]
+
+            for item in raw_stats:
+                stat = item["stat"]
+                stat_id = stat["stat_id"]
+                value = stat.get("value", "0")
+
+                if stat_id in SCORING_STATS:
+                    stats[stat_id] = to_number(value)
+
+            team_totals.append({
+                "team": team_name,
+                "stats": stats
+            })
 
     except Exception as e:
-        print("Parsing error:", e)
-        return jsonify({"error": "Failed to parse Yahoo data"}), 500
+        print("Parsing season stats error:", e)
+        return jsonify({"error": "Failed to parse Yahoo season stats"}), 500
 
-    # STEP 1: Get all matchup data (same as your callback)
-    all_matchups = []
+    category_tables = build_category_tables(team_totals)
 
-    for week in range(1, 26):
-      try:
-        data = get_week_scoreboard(access_token, league_key, week)
-        week_matchups = parse_week_matchups(data)
-        all_matchups.extend(week_matchups)
-      except Exception as e:
-        print(f"Skipping week {week}. Error: {e}")
-
-# STEP 2: Build totals
-      totals = build_totals(all_matchups)
-
-# STEP 3: Build category tables
-      category_tables = build_category_tables(totals)
-
-# STEP 4: Return correct format
-      return jsonify({
+    return jsonify({
         "categoryTables": [
-        {
-            "key": key,
-            "label": value["label"],
-            "rows": value["rows"]
-        }
-        for key, value in category_tables.items()
-    ]
-})
+            {
+                "key": key,
+                "label": value["label"],
+                "rows": value["rows"]
+            }
+            for key, value in category_tables.items()
+        ]
+    })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

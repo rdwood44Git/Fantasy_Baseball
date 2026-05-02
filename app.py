@@ -17,18 +17,19 @@ app.config.update(
     SESSION_COOKIE_SECURE=True
 )
 
+from flask_cors import CORS
+
 CORS(
     app,
-    CORS(
-    app,
-    resources={r"/api/*": {
-        "origins": [
-            "http://localhost:5173",
-            "https://fantasy-baseball-2.onrender.com"
-        ]
-    }},
+    resources={
+        r"/api/*": {
+            "origins": [
+                "http://localhost:5173",
+                "https://fantasy-baseball-1-cum7.onrender.com"
+            ]
+        }
+    },
     supports_credentials=True
-)
 )
 
 CLIENT_ID = os.getenv("YAHOO_CLIENT_ID")

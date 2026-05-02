@@ -25,7 +25,7 @@ CORS(
         r"/api/*": {
             "origins": [
                 "http://localhost:5173",
-                "https://fantasy-baseball-1-cum7.onrender.com"
+                "https://fantasy-baseball-2.onrender.com"
             ]
         }
     },

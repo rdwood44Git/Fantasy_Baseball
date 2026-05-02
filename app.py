@@ -228,6 +228,51 @@ def render_dashboard(all_matchups, totals):
         STAT_NAMES=STAT_NAMES
     )
 
+categories = {
+    "R": "Runs",
+    "HR": "Home Runs",
+    "RBI": "RBI",
+    "SB": "Stolen Bases",
+    "OBP": "OBP",
+    "W": "Wins",
+    "SV_HLD": "Saves + Holds",
+    "K": "Strikeouts",
+    "ERA": "ERA",
+    "WHIP": "WHIP",
+}
+
+lower_is_better = {"ERA", "WHIP"}
+
+def build_category_tables(team_totals):
+    category_tables = {}
+
+    for team in team_totals:
+        team["stats"]["SV_HLD"] = (
+        team["stats"].get("SV", 0) +
+        team["stats"].get("HLD", 0)
+        )
+    for cat, label in categories.items():
+        reverse = cat not in lower_is_better
+
+        ranked = sorted(
+            team_totals,
+            key=lambda team: team["stats"].get(cat, 0),
+            reverse=reverse
+        )
+
+        category_tables[cat] = {
+            "label": label,
+            "rows": [
+                {
+                    "rank": index + 1,
+                    "team": team["team"],
+                    "value": team["stats"].get(cat, 0)
+                }
+                for index, team in enumerate(ranked)
+            ]
+        }
+
+    return category_tables
 
 
 @app.route("/demo")

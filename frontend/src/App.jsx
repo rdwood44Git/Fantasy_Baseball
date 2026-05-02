@@ -6,17 +6,17 @@ import {
 } from '@mui/material';
 
 function App() {
-  const [teams, setTeams] = useState([]);
+  const [categoryTables, setCategoryTables] = useState([]);
 
   useEffect(() => {
     fetch("https://fantasy-baseball-cmav.onrender.com/api/dashboard", {
-  credentials: "include"
-})
+      credentials: "include"
+    })
       .then(res => res.json())
       .then(data => {
-           console.log("Dashboard data:", data);
-           setTeams(data.teams || []);
-          })
+        console.log("Dashboard data:", data);
+        setCategoryTables(data.categoryTables || []);
+      })
       .catch(err => console.error(err));
   }, []);
 
@@ -24,26 +24,39 @@ function App() {
     <div style={{ padding: 20 }}>
       <h1>Fantasy Baseball Dashboard</h1>
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Team</TableCell>
-              <TableCell>Wins</TableCell>
-              <TableCell>Losses</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {teams.map((team, index) => (
-              <TableRow key={index}>
-                <TableCell>{team.name}</TableCell>
-                <TableCell>{team.wins}</TableCell>
-                <TableCell>{team.losses}</TableCell>
+      {categoryTables.map((table) => (
+        <TableContainer
+          component={Paper}
+          key={table.key}
+          style={{ marginBottom: 24 }}
+        >
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell colSpan={3}>
+                  <strong>{table.label}</strong>
+                </TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+
+              <TableRow>
+                <TableCell>Rank</TableCell>
+                <TableCell>Team</TableCell>
+                <TableCell align="right">{table.key}</TableCell>
+              </TableRow>
+            </TableHead>
+
+            <TableBody>
+              {table.rows.map((row, index) => (
+                <TableRow key={index}>
+                  <TableCell>{row.rank}</TableCell>
+                  <TableCell>{row.team}</TableCell>
+                  <TableCell align="right">{row.value}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      ))}
     </div>
   );
 }

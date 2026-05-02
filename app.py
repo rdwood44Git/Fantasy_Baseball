@@ -229,28 +229,24 @@ def render_dashboard(all_matchups, totals):
     )
 
 categories = {
-    "R": "Runs",
-    "HR": "Home Runs",
-    "RBI": "RBI",
-    "SB": "Stolen Bases",
-    "OBP": "OBP",
-    "W": "Wins",
-    "SV_HLD": "Saves + Holds",
-    "K": "Strikeouts",
-    "ERA": "ERA",
-    "WHIP": "WHIP",
+    "7": "Runs",
+    "12": "Home Runs",
+    "13": "RBI",
+    "16": "Stolen Bases",
+    "4": "OBP",
+    "28": "Wins",
+    "89": "Saves + Holds",   # 👈 just use this
+    "42": "Strikeouts",
+    "26": "ERA",
+    "27": "WHIP",
 }
 
-lower_is_better = {"ERA", "WHIP"}
+
+lower_is_better = {"26", "27"}
 
 def build_category_tables(team_totals):
     category_tables = {}
 
-    for team in team_totals:
-        team["stats"]["SV_HLD"] = (
-        team["stats"].get("SV", 0) +
-        team["stats"].get("HLD", 0)
-        )
     for cat, label in categories.items():
         reverse = cat not in lower_is_better
 
@@ -379,25 +375,25 @@ def api_dashboard():
         return jsonify({"error": "Failed to parse Yahoo data"}), 500
 
     # STEP 1: Get all matchup data (same as your callback)
-all_matchups = []
+    all_matchups = []
 
-for week in range(1, 26):
-    try:
+    for week in range(1, 26):
+      try:
         data = get_week_scoreboard(access_token, league_key, week)
         week_matchups = parse_week_matchups(data)
         all_matchups.extend(week_matchups)
-    except Exception as e:
+      except Exception as e:
         print(f"Skipping week {week}. Error: {e}")
 
 # STEP 2: Build totals
-totals = build_totals(all_matchups)
+      totals = build_totals(all_matchups)
 
 # STEP 3: Build category tables
-category_tables = build_category_tables(totals)
+      category_tables = build_category_tables(totals)
 
 # STEP 4: Return correct format
-return jsonify({
-    "categoryTables": [
+      return jsonify({
+        "categoryTables": [
         {
             "key": key,
             "label": value["label"],

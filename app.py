@@ -1,11 +1,12 @@
-from flask import Flask, redirect, request, render_template, jsonify, session
+from flask import Flask, redirect, request, render_template, jsonify, session, Response
 from flask_cors import CORS
 from requests_oauthlib import OAuth2Session
 from dotenv import load_dotenv
 import os
 import requests
 from html import escape
-
+from functools import wraps
+from database import get_db_connection
 
 load_dotenv()
 
@@ -17,16 +18,16 @@ app.config.update(
     SESSION_COOKIE_SECURE=True
 )
 
-from flask_cors import CORS
-
 CORS(
     app,
     resources={
         r"/api/*": {
             "origins": [
                 "http://localhost:5173",
+                "http://localhost:8080",
                 "https://fantasy-baseball-2.onrender.com"
-            ]
+            ],
+            "allow_headers": ["Content-Type", "Authorization"]
         }
     },
     supports_credentials=True
@@ -39,42 +40,61 @@ REDIRECT_URI = os.getenv("YAHOO_REDIRECT_URI")
 AUTHORIZATION_BASE_URL = "https://api.login.yahoo.com/oauth2/request_auth"
 TOKEN_URL = "https://api.login.yahoo.com/oauth2/get_token"
 
-def parse_matchups(data):
-    results = []
 
-    try:
-        matchups = data["fantasy_content"]["league"][1]["scoreboard"]["0"]["matchups"]
+# ============================================================
+# Simple app password protection
+#
+# In Render, add these Environment Variables:
+# APP_USERNAME=your_username
+# APP_PASSWORD=your_password
+#
+# Optional for local testing only:
+# APP_PASSWORD_ENABLED=false
+# ============================================================
+APP_USERNAME = os.getenv("APP_USERNAME", "admin")
+APP_PASSWORD = os.getenv("APP_PASSWORD", "change-me")
+APP_PASSWORD_ENABLED = os.getenv("APP_PASSWORD_ENABLED", "true").lower() == "true"
 
-        for key in matchups:
-            if key == "count":
-                continue
+# Yahoo must be able to return to /callback after login.
+# OPTIONS is allowed so browser CORS preflight requests do not fail.
+PUBLIC_PATHS = {"/callback", "/health"}
 
-            matchup = matchups[key]["matchup"]
 
-            # ✅ FIXED LINE (this was the problem)
-            teams = matchup["0"]["teams"]
+def check_auth(username, password):
+    return username == APP_USERNAME and password == APP_PASSWORD
 
-            team1 = teams["0"]["team"]
-            team2 = teams["1"]["team"]
 
-            # ✅ team names
-            team1_name = team1[0][2]["name"]
-            team2_name = team2[0][2]["name"]
+def auth_required_response():
+    return Response(
+        "Login required",
+        401,
+        {"WWW-Authenticate": 'Basic realm="Fantasy Baseball App"'}
+    )
 
-            # ✅ matchup score
-            team1_points = team1[1]["team_points"]["total"]
-            team2_points = team2[1]["team_points"]["total"]
 
-            results.append({
-                "team1": team1_name,
-                "team2": team2_name,
-                "score": f"{team1_points} - {team2_points}"
-            })
+@app.before_request
+def require_app_password():
+    if not APP_PASSWORD_ENABLED:
+        return None
 
-    except Exception as e:
-        print("Parse error:", e)
+    if request.method == "OPTIONS":
+        return None
 
-    return results
+    if request.path in PUBLIC_PATHS or request.path.startswith("/static/"):
+        return None
+
+    auth = request.authorization
+
+    if not auth or not check_auth(auth.username, auth.password):
+        return auth_required_response()
+
+    return None
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
+
 
 STAT_NAMES = {
     "7": "R",
@@ -91,6 +111,42 @@ STAT_NAMES = {
 
 SCORING_STATS = ["7", "12", "13", "16", "4", "28", "42", "26", "27", "89"]
 
+categories = {
+    "7": "Runs",
+    "12": "Home Runs",
+    "13": "RBI",
+    "16": "Stolen Bases",
+    "4": "OBP",
+    "28": "Wins",
+    "89": "Saves + Holds",
+    "42": "Strikeouts",
+    "26": "ERA",
+    "27": "WHIP",
+}
+
+lower_is_better = {"26", "27"}
+
+
+def classify_player_from_positions(positions):
+    pitcher_positions = {"P", "SP", "RP"}
+    ignored_positions = {"IL", "NA", "BN"}
+
+    clean_positions = {
+        str(p).strip().upper()
+        for p in positions
+        if p and str(p).strip()
+    }
+
+    real_positions = clean_positions - ignored_positions
+
+    if not real_positions:
+        return None
+
+    if real_positions & pitcher_positions:
+        return "pitcher"
+
+    return "hitter"
+
 
 def get_team_name(team):
     return team[0][2]["name"]
@@ -104,9 +160,15 @@ def get_team_points(team):
     return float(team[1]["team_points"]["total"])
 
 
+def to_number(value):
+    try:
+        return float(value)
+    except:
+        return 0
+
+
 def get_team_stats(team):
     stats = {}
-
     raw_stats = team[1]["team_stats"]["stats"]
 
     for item in raw_stats:
@@ -144,7 +206,6 @@ def parse_week_matchups(data):
 
         matchup = matchups[key]["matchup"]
 
-        # Only include completed weeks
         if matchup.get("status") != "postevent":
             continue
 
@@ -186,11 +247,39 @@ def parse_week_matchups(data):
     return results
 
 
-def to_number(value):
+def parse_matchups(data):
+    results = []
+
     try:
-        return float(value)
-    except:
-        return 0
+        matchups = data["fantasy_content"]["league"][1]["scoreboard"]["0"]["matchups"]
+
+        for key in matchups:
+            if key == "count":
+                continue
+
+            matchup = matchups[key]["matchup"]
+
+            teams = matchup["0"]["teams"]
+
+            team1 = teams["0"]["team"]
+            team2 = teams["1"]["team"]
+
+            team1_name = team1[0][2]["name"]
+            team2_name = team2[0][2]["name"]
+
+            team1_points = team1[1]["team_points"]["total"]
+            team2_points = team2[1]["team_points"]["total"]
+
+            results.append({
+                "team1": team1_name,
+                "team2": team2_name,
+                "score": f"{team1_points} - {team2_points}"
+            })
+
+    except Exception as e:
+        print("Parse error:", e)
+
+    return results
 
 
 def build_totals(all_matchups):
@@ -215,12 +304,7 @@ def build_totals(all_matchups):
 
             for stat_id in SCORING_STATS:
                 value = stats.get(stat_id, "0")
-
-                # AVG, ERA, WHIP should be averaged, not summed
-                if stat_id in ["4", "26", "27"]:
-                    totals[team_name]["stats"][stat_id] += to_number(value)
-                else:
-                    totals[team_name]["stats"][stat_id] += to_number(value)
+                totals[team_name]["stats"][stat_id] += to_number(value)
 
     return sorted(
         totals.values(),
@@ -228,30 +312,6 @@ def build_totals(all_matchups):
         reverse=True
     )
 
-def render_dashboard(all_matchups, totals):
-    return render_template(
-        "dashboard.html",
-        all_matchups=all_matchups,
-        totals=totals,
-        SCORING_STATS=SCORING_STATS,
-        STAT_NAMES=STAT_NAMES
-    )
-
-categories = {
-    "7": "Runs",
-    "12": "Home Runs",
-    "13": "RBI",
-    "16": "Stolen Bases",
-    "4": "OBP",
-    "28": "Wins",
-    "89": "Saves + Holds",   # 👈 just use this
-    "42": "Strikeouts",
-    "26": "ERA",
-    "27": "WHIP",
-}
-
-
-lower_is_better = {"26", "27"}
 
 def build_category_tables(team_totals):
     category_tables = {}
@@ -280,6 +340,621 @@ def build_category_tables(team_totals):
     return category_tables
 
 
+@app.route("/api/admin/update-yahoo-positions")
+def update_yahoo_positions():
+    access_token = session.get("access_token")
+
+    if not access_token:
+        return jsonify({"error": "Not logged into Yahoo"}), 401
+
+    league_key = "469.l.64625"
+    game_key = league_key.split(".")[0]
+
+    conn = get_db_connection()
+
+    existing_cols = [
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(players)").fetchall()
+    ]
+
+    if "yahoo_position" not in existing_cols:
+        conn.execute("ALTER TABLE players ADD COLUMN yahoo_position TEXT")
+
+    if "yahoo_positions" not in existing_cols:
+        conn.execute("ALTER TABLE players ADD COLUMN yahoo_positions TEXT")
+
+    if "player_type" not in existing_cols:
+        conn.execute("ALTER TABLE players ADD COLUMN player_type TEXT")
+
+    players = conn.execute("""
+        SELECT yahoo_player_id, yahoo_name
+        FROM players
+        WHERE yahoo_player_id IS NOT NULL
+    """).fetchall()
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    updated = 0
+    missing = []
+    batch_size = 25
+
+    for i in range(0, len(players), batch_size):
+        batch = players[i:i + batch_size]
+
+        player_keys = []
+
+        for p in batch:
+            yahoo_player_id = str(p["yahoo_player_id"])
+
+            if ".p." not in yahoo_player_id:
+                player_key = f"{game_key}.p.{yahoo_player_id}"
+            else:
+                player_key = yahoo_player_id
+
+            player_keys.append(player_key)
+
+        url = (
+            "https://fantasysports.yahooapis.com/fantasy/v2/"
+            f"players;player_keys={','.join(player_keys)}?format=json"
+        )
+
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+
+        yahoo_players = data["fantasy_content"]["players"]
+
+        for key, value in yahoo_players.items():
+            if key == "count":
+                continue
+
+            player = value["player"]
+
+            yahoo_player_id = None
+            yahoo_name = None
+            display_position = None
+            eligible_positions = []
+
+            for item in player[0]:
+                if not isinstance(item, dict):
+                    continue
+
+                if "player_id" in item:
+                    yahoo_player_id = str(item["player_id"])
+
+                if "name" in item:
+                    yahoo_name = item["name"].get("full")
+
+                if "display_position" in item:
+                    display_position = item["display_position"]
+
+                if "eligible_positions" in item:
+                    for pos_item in item["eligible_positions"]:
+                        if "position" in pos_item:
+                            eligible_positions.append(pos_item["position"])
+
+            if not yahoo_player_id:
+                missing.append(yahoo_name or "Unknown")
+                continue
+
+            yahoo_positions = ",".join(eligible_positions)
+            player_type = classify_player_from_positions(eligible_positions)
+
+            cur = conn.execute("""
+                UPDATE players
+                SET
+                    yahoo_position = ?,
+                    yahoo_positions = ?,
+                    player_type = ?
+                WHERE yahoo_player_id = ?
+                   OR yahoo_player_id = ?
+            """, (
+                display_position,
+                yahoo_positions,
+                player_type,
+                yahoo_player_id,
+                f"{game_key}.p.{yahoo_player_id}"
+            ))
+
+            updated += cur.rowcount
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "updated": updated,
+        "missing": missing
+    })
+
+def get_current_yahoo_week():
+    try:
+        from yahoo_oauth import OAuth2
+
+        oauth = OAuth2(None, None, from_file="oauth2.json")
+
+        if not oauth.token_is_valid():
+            oauth.refresh_access_token()
+
+        access_token = oauth.token["access_token"]
+        league_key = "469.l.64625"
+
+        url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/settings?format=json"
+
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=15
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        settings = data["fantasy_content"]["league"][1]["settings"][0]
+
+        return max(int(settings.get("current_week", 1)), 1)
+
+    except Exception as e:
+        print("Could not determine Yahoo current week:", e)
+        return 13
+
+
+
+@app.route("/api/player-category-summary")
+def player_category_summary():
+    conn = get_db_connection()
+
+    weeks_elapsed = get_current_yahoo_week()
+
+    hitter_weekly_ab = 26
+    starter_weekly_ip = 6.5
+    reliever_weekly_ip = 2.5
+
+    hitters = conn.execute("""
+        SELECT
+            p.yahoo_player_id,
+            p.yahoo_name,
+            p.yahoo_team,
+            p.fantasy_team_name,
+            p.is_available,
+            p.is_on_my_team,
+            p.yahoo_hitter_season_rank,
+            p.yahoo_hitter_30_day_rank,
+            p.yahoo_position,
+            p.yahoo_positions,
+            p.player_type,
+            p.injury_status,
+
+            ys.hr AS current_hr,
+            ys.r AS current_r,
+            ys.rbi AS current_rbi,
+            ys.sb AS current_sb,
+            ys.obp AS active_obp,
+            ys.pa_basis AS PA_basis,
+
+            fg.g AS projected_games,
+            fg.pa AS projected_pa,
+            fg.hr AS projected_hr,
+            fg.r AS projected_r,
+            fg.rbi AS projected_rbi,
+            fg.sb AS projected_sb,
+            fg.obp AS projected_obp_weekly,
+
+            ys.hitter_xwoba_14,
+            ys.hitter_xwoba_30,
+            ys.hitter_xwoba_season,
+            ys.hitter_woba_14,
+            ys.hitter_woba_30,
+            ys.hitter_woba_season,
+
+            CASE
+                WHEN ys.pa_basis > 0 THEN ROUND((ys.hr / ys.pa_basis) * ?, 1)
+                ELSE 0
+            END AS active_hr_weekly,
+
+            CASE
+                WHEN ys.pa_basis > 0 THEN ROUND((ys.r / ys.pa_basis) * ?, 1)
+                ELSE 0
+            END AS active_r_weekly,
+
+            CASE
+                WHEN ys.pa_basis > 0 THEN ROUND((ys.rbi / ys.pa_basis) * ?, 1)
+                ELSE 0
+            END AS active_rbi_weekly,
+
+            CASE
+                WHEN ys.pa_basis > 0 THEN ROUND((ys.sb / ys.pa_basis) * ?, 1)
+                ELSE 0
+            END AS active_sb_weekly,
+
+            CASE
+                WHEN fg.pa > 0 THEN ROUND((fg.hr / fg.pa) * ?, 1)
+                ELSE 0
+            END AS projected_hr_weekly,
+
+            CASE
+                WHEN fg.pa > 0 THEN ROUND((fg.r / fg.pa) * ?, 1)
+                ELSE 0
+            END AS projected_r_weekly,
+
+            CASE
+                WHEN fg.pa > 0 THEN ROUND((fg.rbi / fg.pa) * ?, 1)
+                ELSE 0
+            END AS projected_rbi_weekly,
+
+            CASE
+                WHEN fg.pa > 0 THEN ROUND((fg.sb / fg.pa) * ?, 1)
+                ELSE 0
+            END AS projected_sb_weekly,
+
+            CASE
+                WHEN ys.pa_basis > 0 THEN
+                    ROUND(
+                        MIN(
+                            100,
+                            (ys.pa_basis / (? * ?)) * 100
+                        ),
+                        0
+                    )
+                ELSE 0
+            END AS availability_pct
+
+        FROM players p
+        JOIN fangraphs_hitters_ros fg
+            ON p.fangraphs_name = fg.player_name
+        LEFT JOIN yahoo_current_stats ys
+            ON p.yahoo_player_id = ys.yahoo_player_id
+        WHERE p.match_confidence IS NOT NULL
+          AND p.match_confidence != 'unmatched'
+          AND p.player_type = 'hitter'
+        ORDER BY p.is_on_my_team DESC, p.is_available DESC, fg.hr DESC
+    """, (
+        hitter_weekly_ab,
+        hitter_weekly_ab,
+        hitter_weekly_ab,
+        hitter_weekly_ab,
+
+        hitter_weekly_ab,
+        hitter_weekly_ab,
+        hitter_weekly_ab,
+        hitter_weekly_ab,
+
+        hitter_weekly_ab,
+        weeks_elapsed,
+    )).fetchall()
+
+    pitchers = conn.execute("""
+        SELECT
+            p.yahoo_player_id,
+            p.yahoo_name,
+            p.yahoo_team,
+            p.fantasy_team_name,
+            p.is_available,
+            p.is_on_my_team,
+            p.yahoo_pitcher_season_rank,
+            p.yahoo_pitcher_30_day_rank,
+            p.yahoo_position,
+            p.yahoo_positions,
+            p.player_type,
+            p.injury_status,
+
+            ys.ip AS current_ip,
+            ys.w AS current_w,
+            ys.sv_hld AS current_sv_hld,
+            ys.so AS current_k,
+            ys.era AS active_era,
+            ys.whip AS active_whip,
+
+            fg.ip AS projected_ip,
+            fg.w AS projected_w,
+            fg.sv_hld AS projected_sv_hld,
+            fg.so AS projected_k,
+            fg.era AS projected_era_weekly,
+            fg.whip AS projected_whip_weekly,
+
+            ys.pitcher_xwoba_against_14,
+            ys.pitcher_xwoba_against_30,
+            ys.pitcher_xwoba_against_season,
+            ys.pitcher_woba_against_14,
+            ys.pitcher_woba_against_30,
+            ys.pitcher_woba_against_season,
+
+            CASE
+                WHEN p.yahoo_positions LIKE '%SP%' THEN ?
+                ELSE ?
+            END AS role_weekly_ip,
+
+            CASE
+                WHEN ys.ip > 0 THEN
+                    ROUND(
+                        (ys.w / ys.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN ? ELSE ? END,
+                        1
+                    )
+                ELSE 0
+            END AS active_w_weekly,
+
+            CASE
+                WHEN ys.ip > 0 THEN
+                    ROUND(
+                        (ys.sv_hld / ys.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN ? ELSE ? END,
+                        1
+                    )
+                ELSE 0
+            END AS active_sv_hld_weekly,
+
+            CASE
+                WHEN ys.ip > 0 THEN
+                    ROUND(
+                        (ys.so / ys.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN ? ELSE ? END,
+                        1
+                    )
+                ELSE 0
+            END AS active_k_weekly,
+
+            CASE
+                WHEN fg.ip > 0 THEN
+                    ROUND(
+                        (fg.w / fg.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN ? ELSE ? END,
+                        1
+                    )
+                ELSE 0
+            END AS projected_w_weekly,
+
+            CASE
+                WHEN fg.ip > 0 THEN
+                    ROUND(
+                        (fg.sv_hld / fg.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN ? ELSE ? END,
+                        1
+                    )
+                ELSE 0
+            END AS projected_sv_hld_weekly,
+
+            CASE
+                WHEN fg.ip > 0 THEN
+                    ROUND(
+                        (fg.so / fg.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN ? ELSE ? END,
+                        1
+                    )
+                ELSE 0
+            END AS projected_k_weekly,
+
+            CASE
+                WHEN ys.ip > 0 THEN
+                    ROUND(
+                        MIN(
+                            100,
+                            (
+                                ys.ip /
+                                (
+                                    CASE WHEN p.yahoo_positions LIKE '%SP%' THEN ? ELSE ? END
+                                    * ?
+                                )
+                            ) * 100
+                        ),
+                        0
+                    )
+                ELSE 0
+            END AS availability_pct
+
+        FROM players p
+        JOIN fangraphs_pitchers_ros fg
+            ON p.fangraphs_name = fg.player_name
+        LEFT JOIN yahoo_current_stats ys
+            ON p.yahoo_player_id = ys.yahoo_player_id
+        WHERE p.match_confidence IS NOT NULL
+          AND p.match_confidence != 'unmatched'
+          AND p.player_type = 'pitcher'
+        ORDER BY p.is_on_my_team DESC, p.is_available DESC, fg.sv_hld DESC
+    """, (
+        starter_weekly_ip,
+        reliever_weekly_ip,
+
+        starter_weekly_ip,
+        reliever_weekly_ip,
+
+        starter_weekly_ip,
+        reliever_weekly_ip,
+
+        starter_weekly_ip,
+        reliever_weekly_ip,
+
+        starter_weekly_ip,
+        reliever_weekly_ip,
+
+        starter_weekly_ip,
+        reliever_weekly_ip,
+
+        starter_weekly_ip,
+        reliever_weekly_ip,
+
+        starter_weekly_ip,
+        reliever_weekly_ip,
+        weeks_elapsed,
+    )).fetchall()
+
+    conn.close()
+
+    return jsonify({
+        "hitters": [dict(row) for row in hitters],
+        "pitchers": [dict(row) for row in pitchers],
+    })
+
+
+@app.route("/api/team-weekly-averages")
+def team_weekly_averages():
+    conn = get_db_connection()
+
+    player_type = request.args.get("type", "hitters")
+    week = request.args.get("week", "average")
+
+    if week != "average":
+        if player_type == "hitters":
+            rows = conn.execute("""
+                SELECT
+                    fantasy_team_name,
+                    r AS r_weekly,
+                    hr AS hr_weekly,
+                    rbi AS rbi_weekly,
+                    sb AS sb_weekly,
+                    obp AS obp_avg
+                FROM team_weekly_stats
+                WHERE week = ?
+                ORDER BY r DESC
+            """, (week,)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT
+                    fantasy_team_name,
+                    w AS w_weekly,
+                    k AS k_weekly,
+                    sv_hld AS sv_hld_weekly,
+                    era AS era_avg,
+                    whip AS whip_avg
+                FROM team_weekly_stats
+                WHERE week = ?
+                ORDER BY k DESC
+            """, (week,)).fetchall()
+
+        conn.close()
+        return jsonify([dict(row) for row in rows])
+
+    if player_type == "hitters":
+        rows = conn.execute("""
+            WITH ranked_hitters AS (
+                SELECT
+                    p.fantasy_team_name,
+                    p.yahoo_name,
+
+                    CASE WHEN ys.pa_basis > 0 THEN ROUND((ys.r / ys.pa_basis) * 25, 1)
+                         ELSE 0 END AS r_wk,
+
+                    CASE WHEN ys.pa_basis > 0 THEN ROUND((ys.hr / ys.pa_basis) * 25, 1)
+                         ELSE 0 END AS hr_wk,
+
+                    CASE WHEN ys.pa_basis > 0 THEN ROUND((ys.rbi / ys.pa_basis) * 25, 1)
+                         ELSE 0 END AS rbi_wk,
+
+                    CASE WHEN ys.pa_basis > 0 THEN ROUND((ys.sb / ys.pa_basis) * 25, 1)
+                         ELSE 0 END AS sb_wk,
+
+                    ys.obp AS obp,
+
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.fantasy_team_name
+                        ORDER BY
+                            COALESCE(
+                                CASE WHEN ys.pa_basis > 0 THEN
+                                    (
+                                        ((ys.r / ys.pa_basis) * 25) +
+                                        ((ys.hr / ys.pa_basis) * 25) +
+                                        ((ys.rbi / ys.pa_basis) * 25) +
+                                        ((ys.sb / ys.pa_basis) * 25)
+                                    )
+                                ELSE 0 END,
+                                0
+                            ) DESC
+                    ) AS starter_rank
+
+                FROM players p
+                LEFT JOIN yahoo_current_stats ys
+                    ON p.yahoo_player_id = ys.yahoo_player_id
+                WHERE p.fantasy_team_name IS NOT NULL
+                  AND p.player_type = 'hitter'
+            )
+
+            SELECT
+                fantasy_team_name,
+                COUNT(*) AS starters_count,
+                ROUND(SUM(r_wk), 1) AS r_weekly,
+                ROUND(SUM(hr_wk), 1) AS hr_weekly,
+                ROUND(SUM(rbi_wk), 1) AS rbi_weekly,
+                ROUND(SUM(sb_wk), 1) AS sb_weekly,
+                ROUND(AVG(obp), 3) AS obp_avg
+            FROM ranked_hitters
+            WHERE starter_rank <= 10
+            GROUP BY fantasy_team_name
+            ORDER BY r_weekly DESC
+        """).fetchall()
+
+    else:
+        rows = conn.execute("""
+            WITH ranked_pitchers AS (
+                SELECT
+                    p.fantasy_team_name,
+                    p.yahoo_name,
+
+                    CASE
+                        WHEN p.yahoo_positions LIKE '%SP%' THEN 11
+                        ELSE 3.5
+                    END AS role_weekly_ip,
+
+                    CASE WHEN ys.ip > 0 THEN ROUND((ys.w / ys.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN 11 ELSE 3.5 END, 1)
+                        ELSE 0 END AS w_wk,
+
+                    CASE WHEN ys.ip > 0 THEN ROUND((ys.so / ys.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN 11 ELSE 3.5 END, 1)
+                        ELSE 0 END AS k_wk,
+
+                    CASE WHEN ys.ip > 0 THEN ROUND((ys.sv_hld / ys.ip) *
+                        CASE WHEN p.yahoo_positions LIKE '%SP%' THEN 11 ELSE 3.5 END, 1)
+                        ELSE 0 END AS sv_hld_wk,
+
+                    ys.era,
+                    ys.whip,
+
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.fantasy_team_name
+                        ORDER BY
+                            COALESCE(
+                                CASE WHEN ys.ip > 0 THEN
+                                    (
+                                        ((ys.w / ys.ip) *
+                                            CASE WHEN p.yahoo_positions LIKE '%SP%' THEN 11 ELSE 3.5 END
+                                        ) +
+                                        ((ys.so / ys.ip) *
+                                            CASE WHEN p.yahoo_positions LIKE '%SP%' THEN 11 ELSE 3.5 END
+                                        ) +
+                                        ((ys.sv_hld / ys.ip) *
+                                            CASE WHEN p.yahoo_positions LIKE '%SP%' THEN 11 ELSE 3.5 END
+                                        )
+                                    )
+                                ELSE 0 END,
+                                0
+                            ) DESC
+                    ) AS starter_rank
+
+                FROM players p
+                LEFT JOIN yahoo_current_stats ys
+                    ON p.yahoo_player_id = ys.yahoo_player_id
+                WHERE p.fantasy_team_name IS NOT NULL
+                  AND p.player_type = 'pitcher'
+            )
+
+            SELECT
+                fantasy_team_name,
+                COUNT(*) AS starters_count,
+                ROUND(SUM(w_wk), 1) AS w_weekly,
+                ROUND(SUM(k_wk), 1) AS k_weekly,
+                ROUND(SUM(sv_hld_wk), 1) AS sv_hld_weekly,
+                ROUND(AVG(era), 3) AS era_avg,
+                ROUND(AVG(whip), 3) AS whip_avg
+            FROM ranked_pitchers
+            WHERE starter_rank <= 9
+            GROUP BY fantasy_team_name
+            ORDER BY k_weekly DESC
+        """).fetchall()
+
+    conn.close()
+    return jsonify([dict(row) for row in rows])
+
+
 @app.route("/demo")
 def demo():
     players = [
@@ -291,14 +966,12 @@ def demo():
     return render_template("dashboard.html", players=players)
 
 
-
 @app.route("/")
 def login():
- 
-
     yahoo = OAuth2Session(CLIENT_ID, redirect_uri=REDIRECT_URI)
     authorization_url, state = yahoo.authorization_url(AUTHORIZATION_BASE_URL)
     return redirect(authorization_url)
+
 
 @app.route("/callback")
 def callback():
@@ -316,7 +989,6 @@ def callback():
 
     all_matchups = []
 
-    # Your league has weeks 1 through 25, but this only keeps completed weeks
     for week in range(1, 26):
         try:
             data = get_week_scoreboard(access_token, league_key, week)
@@ -343,7 +1015,6 @@ def api_dashboard():
         "Authorization": f"Bearer {access_token}"
     }
 
-    # Get season-to-date team category stats
     url = f"https://fantasysports.yahooapis.com/fantasy/v2/league/{league_key}/teams/stats?format=json"
 
     response = requests.get(url, headers=headers)
@@ -360,11 +1031,9 @@ def api_dashboard():
                 continue
 
             team = value["team"]
-
             team_name = get_team_name(team)
 
             stats = {}
-
             raw_stats = team[1]["team_stats"]["stats"]
 
             for item in raw_stats:
@@ -396,6 +1065,7 @@ def api_dashboard():
             for key, value in category_tables.items()
         ]
     })
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

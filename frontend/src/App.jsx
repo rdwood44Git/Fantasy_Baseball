@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_BASE = "http://localhost:8080";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8080";
+
+const APP_USERNAME = import.meta.env.VITE_APP_USERNAME || "admin";
+const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || "change-me";
+const AUTH_STORAGE_KEY = "millies_fantasy_baseball_auth";
 
 function formatValue(value, key) {
   if (value === null || value === undefined || value === "") return "";
@@ -510,27 +514,128 @@ function PlayerTable({
   );
 }
 
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [error, setError] = useState("");
+
+  function handleSubmit(e) {
+    e.preventDefault();
+
+    const validUsername = username.trim() === APP_USERNAME;
+    const validPassword = password === APP_PASSWORD;
+
+    if (!validUsername || !validPassword) {
+      setError("Incorrect username or password.");
+      return;
+    }
+
+    const storage = rememberMe ? localStorage : sessionStorage;
+    storage.setItem(AUTH_STORAGE_KEY, "true");
+
+    if (rememberMe) {
+      sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    } else {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+
+    onLogin();
+  }
+
+  return (
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-logo">⚾</div>
+        <h1>Millie's Fantasy Baseball</h1>
+        <p className="login-subtitle">Private analytics dashboard</p>
+
+        <form onSubmit={handleSubmit} className="login-form">
+          <label>
+            Username
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setError("");
+              }}
+              autoComplete="username"
+              autoFocus
+            />
+          </label>
+
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError("");
+              }}
+              autoComplete="current-password"
+            />
+          </label>
+
+          <label className="remember-row">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+            />
+            Remember me on this device
+          </label>
+
+          {error && <div className="login-error">{error}</div>}
+
+          <button type="submit" className="login-button">
+            Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return (
+      localStorage.getItem(AUTH_STORAGE_KEY) === "true" ||
+      sessionStorage.getItem(AUTH_STORAGE_KEY) === "true"
+    );
+  });
+
   const [data, setData] = useState({ hitters: [], pitchers: [] });
   const [teamAverages, setTeamAverages] = useState([]);
   const [teamType, setTeamType] = useState("hitters");
   const [teamWeek, setTeamWeek] = useState("average");
 
+  function handleLogout() {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    setIsAuthenticated(false);
+  }
+
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     fetch(`${API_BASE}/api/player-category-summary`)
       .then((res) => res.json())
       .then(setData)
       .catch(console.error);
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     fetch(
       `${API_BASE}/api/team-weekly-averages?type=${teamType}&week=${teamWeek}`
     )
       .then((res) => res.json())
       .then(setTeamAverages)
       .catch(console.error);
-  }, [teamType, teamWeek]);
+  }, [isAuthenticated, teamType, teamWeek]);
 
   const hitterColumns = [
     { key: "yahoo_name", label: "Player" },
@@ -630,6 +735,10 @@ function App() {
     { label: "wOBA Against", colSpan: 3 },
   ];
 
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -642,9 +751,15 @@ function App() {
           </div>
         </div>
 
-        <div className="app-season">
-          <div>Week 15</div>
-          <span>2026 Season</span>
+        <div className="header-actions">
+          <div className="app-season">
+            <div>Week 15</div>
+            <span>2026 Season</span>
+          </div>
+
+          <button type="button" className="logout-button" onClick={handleLogout}>
+            Logout
+          </button>
         </div>
       </header>
 

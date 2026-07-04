@@ -1,4 +1,4 @@
-from flask import Flask, redirect, request, render_template, jsonify, session, Response
+from flask import Flask, redirect, request, render_template, jsonify, session, send_from_directory
 from flask_cors import CORS
 from requests_oauthlib import OAuth2Session
 from dotenv import load_dotenv
@@ -14,8 +14,8 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
 
 app.config.update(
-    SESSION_COOKIE_SAMESITE="None",
-    SESSION_COOKIE_SECURE=True
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("FLASK_ENV", "production") != "development"
 )
 
 CORS(
@@ -42,59 +42,215 @@ TOKEN_URL = "https://api.login.yahoo.com/oauth2/get_token"
 
 
 # ============================================================
-# Simple app password protection
+# Simple app password protection using a Flask session login
 #
 # In Render, add these Environment Variables:
 # APP_USERNAME=your_username
 # APP_PASSWORD=your_password
+# APP_PASSWORD_ENABLED=true
+# FLASK_SECRET_KEY=make-this-a-long-random-value
 #
-# Optional for local testing only:
+# For local testing only, you can set:
 # APP_PASSWORD_ENABLED=false
 # ============================================================
 APP_USERNAME = os.getenv("APP_USERNAME", "admin")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "change-me")
 APP_PASSWORD_ENABLED = os.getenv("APP_PASSWORD_ENABLED", "true").lower() == "true"
 
-# Yahoo must be able to return to /callback after login.
-# OPTIONS is allowed so browser CORS preflight requests do not fail.
-PUBLIC_PATHS = {"/callback", "/health"}
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "dist")
+FRONTEND_ASSETS = os.path.join(FRONTEND_DIST, "assets")
+
+PUBLIC_PATHS = {"/login", "/health"}
 
 
-def check_auth(username, password):
-    return username == APP_USERNAME and password == APP_PASSWORD
-
-
-def auth_required_response():
-    return Response(
-        "Login required",
-        401,
-        {"WWW-Authenticate": 'Basic realm="Fantasy Baseball App"'}
-    )
+def is_app_logged_in():
+    return bool(session.get("app_logged_in"))
 
 
 @app.before_request
-def require_app_password():
+def require_app_login():
     if not APP_PASSWORD_ENABLED:
         return None
 
     if request.method == "OPTIONS":
         return None
 
-    if request.path in PUBLIC_PATHS or request.path.startswith("/static/"):
+    if request.path in PUBLIC_PATHS:
         return None
 
-    auth = request.authorization
+    if request.path.startswith("/assets/") or request.path.startswith("/static/"):
+        return None
 
-    if not auth or not check_auth(auth.username, auth.password):
-        return auth_required_response()
+    # Keep Yahoo callback reachable after OAuth redirects back to the app.
+    if request.path == "/callback":
+        return None
 
-    return None
+    if is_app_logged_in():
+        return None
+
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "App login required"}), 401
+
+    next_url = request.full_path if request.query_string else request.path
+    return redirect(f"/login?next={next_url}")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def app_login():
+    error = None
+    next_url = request.args.get("next") or request.form.get("next") or "/"
+
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+
+        if username == APP_USERNAME and password == APP_PASSWORD:
+            session["app_logged_in"] = True
+            return redirect(next_url or "/")
+
+        error = "Invalid username or password."
+
+    return f"""
+    <!doctype html>
+    <html lang=\"en\">
+      <head>
+        <meta charset=\"utf-8\" />
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+        <title>Fantasy Baseball Login</title>
+        <style>
+          * {{ box-sizing: border-box; }}
+          body {{
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #061b35 0%, #0d2f59 55%, #15477d 100%);
+            font-family: Inter, Arial, Helvetica, sans-serif;
+            color: #102033;
+            padding: 24px;
+          }}
+          .login-card {{
+            width: 100%;
+            max-width: 430px;
+            background: #ffffff;
+            border-radius: 18px;
+            box-shadow: 0 18px 55px rgba(0,0,0,0.35);
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.25);
+          }}
+          .login-header {{
+            padding: 28px 28px 22px;
+            background: #08264a;
+            color: white;
+            text-align: center;
+            border-bottom: 4px solid #2a9cab;
+          }}
+          .logo {{
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 14px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+          }}
+          h1 {{
+            margin: 0;
+            font-size: 24px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+          }}
+          .subtitle {{
+            margin-top: 8px;
+            color: #c7d7ea;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+          }}
+          form {{ padding: 26px 28px 30px; }}
+          label {{
+            display: block;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 900;
+            color: #38506a;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+          }}
+          input {{
+            width: 100%;
+            height: 44px;
+            margin-bottom: 16px;
+            padding: 0 12px;
+            border: 1px solid #d6dee8;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+          }}
+          input:focus {{
+            border-color: #2a9cab;
+            box-shadow: 0 0 0 3px rgba(42,156,171,0.16);
+          }}
+          .error {{
+            margin-bottom: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #fdecec;
+            color: #c62828;
+            font-weight: 800;
+            font-size: 13px;
+          }}
+          button {{
+            width: 100%;
+            height: 46px;
+            border: 0;
+            border-radius: 8px;
+            background: #0b5cab;
+            color: white;
+            font-weight: 900;
+            font-size: 15px;
+            cursor: pointer;
+          }}
+          button:hover {{ background: #084b8d; }}
+        </style>
+      </head>
+      <body>
+        <div class=\"login-card\">
+          <div class=\"login-header\">
+            <div class=\"logo\">⚾</div>
+            <h1>Millie's Fantasy Baseball</h1>
+            <div class=\"subtitle\">Private Dashboard</div>
+          </div>
+          <form method=\"post\">
+            <input type=\"hidden\" name=\"next\" value=\"{next_url}\" />
+            {f'<div class=\"error\">{error}</div>' if error else ''}
+            <label for=\"username\">Username</label>
+            <input id=\"username\" name=\"username\" autocomplete=\"username\" required autofocus />
+            <label for=\"password\">Password</label>
+            <input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required />
+            <button type=\"submit\">Sign In</button>
+          </form>
+        </div>
+      </body>
+    </html>
+    """
+
+
+@app.route("/logout")
+def app_logout():
+    session.pop("app_logged_in", None)
+    return redirect("/login")
 
 
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
-
 
 STAT_NAMES = {
     "7": "R",
@@ -966,8 +1122,8 @@ def demo():
     return render_template("dashboard.html", players=players)
 
 
-@app.route("/")
-def login():
+@app.route("/yahoo-login")
+def yahoo_login():
     yahoo = OAuth2Session(CLIENT_ID, redirect_uri=REDIRECT_URI)
     authorization_url, state = yahoo.authorization_url(AUTHORIZATION_BASE_URL)
     return redirect(authorization_url)
@@ -999,7 +1155,7 @@ def callback():
 
     totals = build_totals(all_matchups)
 
-    return redirect("https://fantasy-baseball-2.onrender.com")
+    return redirect("/")
 
 
 @app.route("/api/dashboard")
@@ -1065,6 +1221,42 @@ def api_dashboard():
             for key, value in category_tables.items()
         ]
     })
+
+
+# ============================================================
+# Serve the built React frontend from frontend/dist
+# Render build command should run: cd frontend && npm install && npm run build
+# Start command should run this Flask app.
+# ============================================================
+@app.route("/")
+def serve_frontend():
+    index_path = os.path.join(FRONTEND_DIST, "index.html")
+
+    if os.path.exists(index_path):
+        return send_from_directory(FRONTEND_DIST, "index.html")
+
+    return "Frontend build not found. Run: cd frontend && npm run build", 500
+
+
+@app.route("/assets/<path:path>")
+def serve_frontend_assets(path):
+    return send_from_directory(FRONTEND_ASSETS, path)
+
+
+@app.route("/<path:path>")
+def serve_frontend_fallback(path):
+    if path.startswith("api/"):
+        return jsonify({"error": "API route not found"}), 404
+
+    requested_file = os.path.join(FRONTEND_DIST, path)
+    if os.path.exists(requested_file) and os.path.isfile(requested_file):
+        return send_from_directory(FRONTEND_DIST, path)
+
+    index_path = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.exists(index_path):
+        return send_from_directory(FRONTEND_DIST, "index.html")
+
+    return "Frontend build not found. Run: cd frontend && npm run build", 500
 
 
 if __name__ == "__main__":

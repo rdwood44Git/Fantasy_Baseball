@@ -57,6 +57,10 @@ APP_USERNAME = os.getenv("APP_USERNAME", "admin")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "change-me")
 APP_PASSWORD_ENABLED = os.getenv("APP_PASSWORD_ENABLED", "true").lower() == "true"
 
+print("APP_USERNAME =", APP_USERNAME)
+print("APP_PASSWORD =", APP_PASSWORD)
+print("APP_PASSWORD_ENABLED =", APP_PASSWORD_ENABLED)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "dist")
 FRONTEND_ASSETS = os.path.join(FRONTEND_DIST, "assets")

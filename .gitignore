@@ -1,4 +1,24 @@
+# Secrets
 .env
-get_token.py
-refresh_token.py
-fantasy_baseball.db
+oauth2.json
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# CSV exports
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# Local project folders
+archive_loads/
+
+# Node
+node_modules/
+
+# Build output
+dist/

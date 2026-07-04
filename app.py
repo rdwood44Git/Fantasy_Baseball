@@ -57,10 +57,6 @@ APP_USERNAME = os.getenv("APP_USERNAME", "admin")
 APP_PASSWORD = os.getenv("APP_PASSWORD", "change-me")
 APP_PASSWORD_ENABLED = os.getenv("APP_PASSWORD_ENABLED", "true").lower() == "true"
 
-print("APP_USERNAME =", APP_USERNAME)
-print("APP_PASSWORD =", APP_PASSWORD)
-print("APP_PASSWORD_ENABLED =", APP_PASSWORD_ENABLED)
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "dist")
 FRONTEND_ASSETS = os.path.join(FRONTEND_DIST, "assets")
@@ -232,8 +228,8 @@ def app_login():
             <div class=\"subtitle\">Private Dashboard</div>
           </div>
           <form method=\"post\">
-            <input type=\"hidden\" name=\"next\" value=\"{next_url}\" />
-            {f'<div class=\"error\">{error}</div>' if error else ''}
+            <input type=\"hidden\" name=\"next\" value=\"{escape(next_url)}\" />
+            {f'<div class=\"error\">{escape(error)}</div>' if error else ''}
             <label for=\"username\">Username</label>
             <input id=\"username\" name=\"username\" autocomplete=\"username\" required autofocus />
             <label for=\"password\">Password</label>

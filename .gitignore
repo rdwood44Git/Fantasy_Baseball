@@ -3,7 +3,6 @@
 oauth2.json
 
 # Databases
-*.db
 *.sqlite
 *.sqlite3
 

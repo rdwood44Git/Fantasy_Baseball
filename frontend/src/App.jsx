@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_BASE = "http://localhost:8080";
+const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? "http://localhost:8080" : "");
 
 function formatValue(value, key) {
   if (value === null || value === undefined || value === "") return "";
@@ -516,8 +516,12 @@ function App() {
   const [teamType, setTeamType] = useState("hitters");
   const [teamWeek, setTeamWeek] = useState("average");
 
+  function handleLogout() {
+    window.location.href = `${API_BASE}/logout`;
+  }
+
   useEffect(() => {
-    fetch(`${API_BASE}/api/player-category-summary`)
+    fetch(`${API_BASE}/api/player-category-summary`, { credentials: "include" })
       .then((res) => res.json())
       .then(setData)
       .catch(console.error);
@@ -525,7 +529,8 @@ function App() {
 
   useEffect(() => {
     fetch(
-      `${API_BASE}/api/team-weekly-averages?type=${teamType}&week=${teamWeek}`
+      `${API_BASE}/api/team-weekly-averages?type=${teamType}&week=${teamWeek}`,
+      { credentials: "include" }
     )
       .then((res) => res.json())
       .then(setTeamAverages)
@@ -642,9 +647,15 @@ function App() {
           </div>
         </div>
 
-        <div className="app-season">
-          <div>Week 15</div>
-          <span>2026 Season</span>
+        <div className="header-actions">
+          <div className="app-season">
+            <div>Week 15</div>
+            <span>2026 Season</span>
+          </div>
+
+          <button type="button" className="logout-button" onClick={handleLogout}>
+            Logout
+          </button>
         </div>
       </header>
 
